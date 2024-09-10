@@ -12,7 +12,7 @@ vpn=PANGP
 wslPath=$1
 if [ -z "$1" ]; then
   read -p "Please provide WSL script path [/mnt/c/Users/$(whoami)]: " wslPath
-  wslPath=${wslPath=-/mnt/c/Users/$(whoami)}
+  wslPath=${wslPath:-/mnt/c/Users/$(whoami)}
 fi
 echo "Using WSL path: $wslPath"
 
@@ -20,7 +20,7 @@ winPath=$2
 
 if [ -z "$2" ]; then
   read -p "Please provide Windows script path [C:\\Users\\$(whoami)]: " winPath
-  winPath=${winPath=-"C:\\Users\\$(whoami)"}
+  winPath=${winPath:-"C:\\Users\\$(whoami)"}
 fi
 echo "Using Windows path: $winPath"
 
