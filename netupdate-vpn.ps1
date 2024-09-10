@@ -1,11 +1,27 @@
 #Updates interface metrics to set priority when VPN is connected and disconnected
-Get-NetAdapter | Where-Object { $_.Name -like "*PANGP*" } | Select -ExpandProperty ifIndex
-$outputPath = "C:\Users\matthewt\netupdate.txt"
+Param ([string]$WindowsPath, [string]$Vpn)
+
+$missingParams=$false
+if ($WindowsPath -eq "") {
+    Write-Host "WindowsPath cannot be empty."
+    $missingParams=$true
+} 
+if ($Vpn -eq "") {
+    Write-Host "Vpn cannot be empty."
+    $missingParams=$true
+}
+
+if ($missingParams) {
+    exit 1
+}
+
+$isVpn=""
+$outputPath = "$WindowsPath\netupdate.txt"
 if (Test-Path $outputPath) {
     Remove-Item $outputPath
 }
 
-$resolvPath = "C:\Users\matthewt\resolv.conf"
+$resolvPath = "$WindowsPath\resolv.conf"
 if (Test-Path $resolvPath) {
     Remove-Item $resolvPath
 }
@@ -22,8 +38,8 @@ $wifiMetricConnected = 15
 $wslMetricDisconnected = 20
 $wifiMetricDisconnected = 10
 
-$wslAdapter = [int32](Get-NetAdapter | Where-Object { $_.Name -like "*WSL*" } | Select -ExpandProperty ifIndex)
-$vpnAdapter = [int32](Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*PANGP*" } | Select -ExpandProperty ifIndex)
+$wslAdapter = [int32](Get-NetAdapter -IncludeHidden | Where-Object { $_.Name -like "vEthernet*WSL*" } | Select -ExpandProperty ifIndex)
+$vpnAdapter = [int32](Get-NetAdapter | Where-Object { $_.InterfaceDescription -like "*$Vpn*" } | Select -ExpandProperty ifIndex)
 $wifiAdapter = [int32](Get-NetAdapter | Where-Object { $_.Name -like "*Wi-Fi*" } | Select -ExpandProperty ifIndex)
 
 $wslInterface4 = Get-NetIpInterface | Where-Object { $_.ifIndex -eq $wslAdapter -and $_.AddressFamily -eq "IPv4" }
@@ -36,7 +52,7 @@ $wifiInterface6 = Get-NetIpInterface | Where-Object { $_.ifIndex -match $wifiAda
 if ($vpnInterface4) {
 
 
-	"VPN is Connected. Setting interface metrics" | Out-File -FilePath $outputPath -Append
+	$isVpn = "VPN is Connected. Setting interface metrics"
 
         Set-NetIPInterface -InterfaceIndex $vpnInterface6.InterfaceIndex -InterfaceMetric $highMetric
         Set-NetIPInterface -InterfaceIndex $wifiInterface6.InterfaceIndex -InterfaceMetric $highMetric
@@ -45,7 +61,7 @@ if ($vpnInterface4) {
 	Set-NetIPInterface -InterfaceIndex $vpnInterface4.InterfaceIndex -InterfaceMetric $vpnMetricConnected
 	Set-NetIPInterface -InterfaceIndex $wifiInterface4.InterfaceIndex -InterfaceMetric $wifiMetricConnected
 
-	$dnsAddresses = Get-NetAdapter | ?{ ($_.InterfaceDescription -like "*PANGP*") } | Get-DnsClientServerAddress | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -ExpandProperty ServerAddresses
+	$dnsAddresses = Get-NetAdapter | ?{ ($_.InterfaceDescription -like "*$Vpn*") } | Get-DnsClientServerAddress | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -ExpandProperty ServerAddresses
 
         foreach ($address in $dnsAddresses) {
             $resolvContent += "nameserver $address"
@@ -54,14 +70,14 @@ if ($vpnInterface4) {
         $resolvContent += "search $($searchSuffixes -join ' ')"
 } else {
 
-        Write-Output "VPN is Disonnected. Setting interface metrics" | Out-File -FilePath $outputPath -Append
+        $isVpn = "VPN is Disonnected. Setting interface metrics"
 
         Set-NetIPInterface -InterfaceIndex $wslInterface4.InterfaceIndex -InterfaceMetric $wslMetricDisconnected
         Set-NetIPInterface -InterfaceIndex $wifiInterface4.InterfaceIndex -InterfaceMetric $wifiMetricDisconnected
 
 	Set-NetIPInterface -InterfaceIndex $wifiInterface6.InterfaceIndex -InterfaceMetric $wifiMetricDisconnected
 
-	$dnsAddresses = Get-NetAdapter | ?{ -not ($_.InterfaceDescription -like "*PANGP*") } | Get-DnsClientServerAddress | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -ExpandProperty ServerAddresses
+	$dnsAddresses = Get-NetAdapter | ?{ -not ($_.InterfaceDescription -like "*$Vpn*") } | Get-DnsClientServerAddress | Where-Object { $_.AddressFamily -eq 2 } | Select-Object -ExpandProperty ServerAddresses
 
 	$resolvContent += "nameserver 1.1.1.1"
 	foreach ($address in $dnsAddresses) {
@@ -85,6 +101,6 @@ $routemetric = Get-NetRoute -DestinationPrefix $wsl_gw/32 | Select-Object -Expan
 
 route add $wsl_addr mask 255.255.255.255 $wsl_addr metric $routemetric if $ifindex
 
-
+Write-Output $isVpn | Out-File -FilePath $outputPath -Append
 Get-NetIPInterface | Sort-Object -Property InterfaceMetric | Format-Table -AutoSize | Out-File -FilePath $outputPath -Append
 
